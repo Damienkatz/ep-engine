@@ -130,9 +130,9 @@ libblackhole_kvstore_la_SOURCES = kvstore.hh \
                                   blackhole-kvstore/blackhole.cc \
                                   blackhole-kvstore/blackhole.hh
 
-couchstore_srcdir = /Users/jin/CouchBase/couchstore
-couchstorelibdir = $(couchstore_srcdir)/builder
-couchstorelib_LIB = libcouchstore.a
+couchstore_srcdir = ..//couchstore
+couchstorelibdir = $(couchstore_srcdir)
+couchstorelib_LIB = libcouchstore.la
 
 libmc_kvstore_la_SOURCES = kvstore.hh \
                            mc-kvstore/mc-engine.cc \
@@ -142,7 +142,7 @@ libmc_kvstore_la_SOURCES = kvstore.hh \
                            tools/cJSON.c \
                            tools/cJSON.h
 libmc_kvstore_la_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/sqlite-kvstore \
-                            -I$(couchstore_srcdir)/src $(AM_CPPFLAGS)
+                            -I$(couchstore_srcdir)/include/libcouchstore $(AM_CPPFLAGS)
 libmc_kvstore_la_LIBADD = $(couchstorelibdir)/$(couchstorelib_LIB)
 libmc_kvstore_la_DEPENDENCIES = 
 .generated_configuration: gen_config configuration.json
