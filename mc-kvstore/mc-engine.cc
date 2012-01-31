@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <cctype>
 #include <algorithm>
+#include <stdio.h>
+#include <dirent.h>
 #include "locks.hh"
 
 #include "mc-kvstore/mc-engine.hh"
@@ -159,6 +161,8 @@ private:
     uint16_t vbucket;
     Callback<GetValue> &callback;
 };
+
+
 
 class SetResponseHandler: public BinaryPacketHandler {
 public:
@@ -1261,9 +1265,33 @@ void MemcachedEngine::tap(shared_ptr<TapCallback> cb) {
     sendIov[0].iov_base = (char*)req.bytes;
     sendIov[0].iov_len = sizeof(req.bytes);
     numiovec = 1;
-
+    
+    /* old way - to be removed */
     sendCommand(new TapResponseHandler(seqno++, epStats, cb, false, true));
-    wait();
+    // wait();
+
+    /* new way */
+    // get bucket name from configuration
+    std::string bname = configuration.getCouchBucket();
+
+    // get data directory name from configuration
+    std::string dirname = configuration.getCouchDbDir();
+
+    // concat the path for data files
+    std::string fullpath = dirname + "/" + bname;
+
+    // open directory and get files
+    std::vector<std::string> files = std::vector<std::string>();
+    std::map<char *, int> filemap;
+    if (getDataFiles(fullpath, files)) {
+        // populate map table for each file name
+        populateFileNameMap(files, filemap);
+    } else {
+        // cannot open data directory, log error and return immediately
+        // cb(...);
+    }
+
+    // process directly read on each file
 }
 
 void MemcachedEngine::tapKeys(shared_ptr<TapCallback> cb) {
@@ -1378,6 +1406,57 @@ void MemcachedEngine::addStats(const std::string &prefix,
     addStat(prefix, "last_sent_command", cmd2str(lastSentCommand), add_stat, c);
     addStat(prefix, "last_received_command", cmd2str(lastReceivedCommand),
             add_stat, c);
+}
+
+bool MemcachedEngine::getDataFiles(const std::string &dir,
+                                   std::vector<std::string> &v)
+{
+    DIR *dhdl = NULL;
+    struct dirent *direntry = NULL;
+
+    if ((dhdl = opendir(dir.data())) != NULL) {
+        // error log?
+        return false;
+    } else {
+        while ((direntry = readdir(dhdl))) {
+            v.push_back(std::string(direntry->d_name));
+        }
+    }
+    closedir(dhdl);
+    return true;
+}
+
+void MemcachedEngine::populateFileNameMap(std::vector<std::string> &v,
+                                          std::map<char *, int> &filemap)
+{
+   std::string filename;
+   std::string keyNamePair;
+   std::string revNumStr;
+   int revNum;
+   size_t secondDot;
+
+   std::map<char *,int>::iterator itr;
+
+   while (!v.empty()) {
+
+       filename = v.back();
+       secondDot = filename.rfind(".");
+       keyNamePair = filename.substr(0, secondDot-1);
+       revNumStr = filename.substr(secondDot+1);
+       revNum = atoi(revNumStr.c_str());
+
+       itr = filemap.find((char *)keyNamePair.c_str());
+       if (itr == filemap.end()) {
+           filemap.insert(std::pair<char *, int>((char *)keyNamePair.c_str(), revNum));
+       } else {
+           // duplciate key
+           if (itr->second < revNum) {
+              filemap.erase(itr);
+              filemap.insert(std::pair<char *, int>((char *)keyNamePair.c_str(), revNum));
+           }
+       }
+       v.pop_back();
+   }
 }
 
 const char *MemcachedEngine::cmd2str(uint8_t cmd)

@@ -114,7 +114,9 @@ public:
     void addStats(const std::string &prefix,
                   ADD_STAT add_stat,
                   const void *c);
-
+    bool getDataFiles(const std::string &dir, std::vector<std::string> &v);
+    void populateFileNameMap(std::vector<std::string> &v,
+                             std::map<char *, int> &filemap);
 protected:
     friend class SelectBucketResponseHandler;
 
