@@ -14,8 +14,8 @@ source would be to just create a source tree and reference it.
 
 ### Building Memcached
 
-For example, assume you keep all of your projects in `~/prog/`, you
-can do this:
+For example, assume you keep all of your projects in `~/prog/`, you can do
+this:
 
     cd ~/prog
     git clone -b engine git://github.com/membase/memcached.git
