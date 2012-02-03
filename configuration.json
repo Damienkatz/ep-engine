@@ -73,7 +73,7 @@
                 }
             }
         },
-        "couch_db_dir": {
+        "couch_bucket_dir": {
             "default": "",
             "dynamic": false,
             "type": "std::string"
