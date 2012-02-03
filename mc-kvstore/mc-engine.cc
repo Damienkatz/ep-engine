@@ -1267,7 +1267,6 @@ void MemcachedEngine::selectBucket() {
 }
 
 void MemcachedEngine::tap(shared_ptr<TapCallback> cb) {
-    raise(SIGTRAP);
     std::string dirname = configuration.getDbname();
 
     std::vector<std::string> files = std::vector<std::string>();
@@ -1275,8 +1274,10 @@ void MemcachedEngine::tap(shared_ptr<TapCallback> cb) {
     if (getDataFiles(dirname, files)) {
         populateFileNameMap(files, filemap);
     } else {
-        // TODO: log and return error to client
-        abort();
+        // TODO: log and just return 
+        getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                "data diretory does not exist %s\n", dirname.c_str());
+        return; 
     }
 
     std::string dbName;
@@ -1297,11 +1298,21 @@ void MemcachedEngine::tap(shared_ptr<TapCallback> cb) {
             errorCode = changes_since(db, 0, 0, recordDbDump, (void *)&ctx);
             if (errorCode) {
                  // TODO; log error and continue or return to client
+            getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                "changes_since failed %d\n", errorCode);
                  abort();
             } 
         } else {
             // TODO: log error and continue or return to client
-            abort();
+            getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                "openDB failed %d\n", errorCode);
+            if (errorCode == ERROR_NO_HEADER) {
+                continue;
+            } else {
+               getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                   "openDB %s failed %d\n", dbName.c_str(), errorCode);
+               abort();
+            }
         }
        
         if (db) {
@@ -1449,17 +1460,28 @@ bool MemcachedEngine::getDataFiles(const std::string &dir,
 {
     DIR *dhdl = NULL;
     struct dirent *direntry = NULL;
-    std::stringstream filename;
 
-    raise(SIGTRAP);
-    if ((dhdl = opendir(dir.data())) == NULL) {
-        // error log?
+    if ((dhdl = opendir(dir.c_str())) == NULL) {
+        getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                         "DEBUG opendir failed: %s\n", dir.c_str());
         return false;
     } else {
         while ((direntry = readdir(dhdl))) {
+            getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                "DEBUG d_name: %s\n", direntry->d_name);
+            if (strlen(direntry->d_name) < (sizeof(".couch") - 1)) {
+            getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                "DEBUG skipping d_name: %s\n", direntry->d_name);
+                continue;
+            }
+            std::stringstream filename;
             filename << dir << std::string("/") << std::string(direntry->d_name);
             // push each file name into the vector except
             // compact files
+           
+            getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                "DEBUG filename: %s\n", filename.str().c_str());
+
             if (!isCompactFile(filename.str())) {
                 v.push_back(std::string(filename.str()));
             }
@@ -1482,22 +1504,25 @@ void MemcachedEngine::populateFileNameMap(std::vector<std::string> &v,
 
    std::map<char *, std::pair<int, int> >::iterator itr;
 
-   raise(SIGTRAP);
    while (!v.empty()) {
 
        filename = v.back();
        secondDot = filename.rfind(".");
-       keyNamePair = filename.substr(0, secondDot-1);
+       keyNamePair = filename.substr(0, secondDot);
        firstDot = keyNamePair.rfind(".");
        firstSlash = keyNamePair.rfind("/");
 
        revNumStr = filename.substr(secondDot+1);
        revNum = atoi(revNumStr.c_str());
        bIdStr = keyNamePair.substr(firstSlash+1, firstDot+1);
-       bId = atoi(keyNamePair.c_str());
+       bId = atoi(bIdStr.c_str());
 
        itr = filemap.find((char *)keyNamePair.c_str());
        if (itr == filemap.end()) {
+            
+           getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                "DEBUG keyNamePair: %s bid: %d rev: %d\n", keyNamePair.c_str(), bId, revNum);
+
            filemap.insert(std::pair<char *, std::pair<int, int> >(
                               (char *)keyNamePair.c_str(), 
                               std::pair<int, int>(bId, revNum)));
