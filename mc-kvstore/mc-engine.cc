@@ -1298,18 +1298,19 @@ void MemcachedEngine::tap(shared_ptr<TapCallback> cb) {
             if (errorCode) {
                  // TODO; log error and continue or return to client
             getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                "changes_since failed %d\n", errorCode);
+                "DEBUG changes_since failed %d\n", errorCode);
                  abort();
             } 
         } else {
             // TODO: log error and continue or return to client
             getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                "openDB failed %d dbName: %s\n", errorCode, dbName.c_str());
-            if (errorCode == ERROR_OPEN_FILE) {
+                "DEBUG openDB failed %d dbName: %s\n", errorCode, dbName.c_str());
+            if (errorCode == ERROR_OPEN_FILE || errorCode == ERROR_NO_HEADER) {
+                db = NULL;
                 continue;
             } else {
                getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                   "openDB %s failed %d\n", dbName.c_str(), errorCode);
+                   "DEBUG openDB %s failed %d\n", dbName.c_str(), errorCode);
                abort();
             }
         }
@@ -1529,7 +1530,9 @@ void MemcachedEngine::populateFileNameMap(std::vector<std::string> &v,
            
            if ((DEBUGcount % 4) == 0) {
            getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                "DEBUG duplicate keyNamePair: %s bid: %d\n", keyNamePair.c_str(), bId);
+                "DEBUG duplicate keyNamePair: %s bid: %d rev: %d\n", itr->first, itr->second.first, itr->second.second);
+           getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                "DEBUG duplicate keyNamePair: %s bid: %d new rev: %d\n", keyNamePair.c_str(), bId, revNum);
            }
            // duplicate key
            if (itr->second.second < revNum) {
@@ -1545,24 +1548,23 @@ void MemcachedEngine::populateFileNameMap(std::vector<std::string> &v,
 
 int MemcachedEngine::checkNewRevNum(const std::string &dbname) {
     int newrev = 0;
-    glob_t *pglob = NULL;
+    glob_t fglob;
 
     std::string  filename, revnum;
     size_t secondDot = dbname.rfind("."); 
     std::string  keyNamePair = dbname.substr(0, secondDot);
     keyNamePair.append("*", 1);
 
-    if (glob(keyNamePair.c_str(), GLOB_ERR | GLOB_MARK, NULL, pglob)) {
+    if (glob(keyNamePair.c_str(), GLOB_ERR | GLOB_MARK, NULL, &fglob)) {
        // log error - file permission etc
        return newrev;
     }
 
     // found file(s) whoes name has the same key name pair with different
     // revision number
-    assert(pglob);
-    int max = pglob->gl_pathc;
+    int max = fglob.gl_pathc;
     for (int count = 0; count < max; count++) {
-        filename = std::string(pglob->gl_pathv[count]);
+        filename = std::string(fglob.gl_pathv[count]);
         if (isCompactFile(filename)) {
             continue;
         }
@@ -1573,7 +1575,7 @@ int MemcachedEngine::checkNewRevNum(const std::string &dbname) {
             newrev = atoi(revnum.c_str());
         }
     }
-    globfree(pglob);
+    globfree(&fglob);
     return newrev;
 }
 
