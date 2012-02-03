@@ -73,11 +73,6 @@
                 }
             }
         },
-        "couch_db_dir": {
-            "default": "",
-            "dynamic": false,
-            "type": "std::string"
-        },
         "couch_host": {
             "default": "localhost",
             "dynamic": false,

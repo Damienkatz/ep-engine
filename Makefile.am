@@ -130,7 +130,7 @@ libblackhole_kvstore_la_SOURCES = kvstore.hh \
                                   blackhole-kvstore/blackhole.cc \
                                   blackhole-kvstore/blackhole.hh
 
-couchstore_srcdir = ..//couchstore
+couchstore_srcdir = ../couchstore
 couchstorelibdir = $(couchstore_srcdir)
 couchstorelib_LIB = libcouchstore.la
 
