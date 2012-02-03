@@ -9,11 +9,7 @@
 #include "configuration.hh"
 #include "callbacks.hh"
 #include "kvstore.hh"
-
-
-extern "C" {
- #include "couch_db.h"
-}
+#include "couch_db.h"
 
 /*
  * libevent2 define evutil_socket_t so that it'll automagically work
