@@ -1280,12 +1280,12 @@ void MemcachedEngine::tap(shared_ptr<TapCallback> cb) {
     }
 
     std::string dbName;
-    std::stringstream rev;  
     std::map<std::string, std::pair<int, int> >::iterator itr = filemap.begin();
     Db *db = NULL;
     int errorCode;
 
     for (; itr != filemap.end(); itr++) {
+        std::stringstream rev;
         rev << itr->second.second;        
         dbName = itr->first + "." + rev.str();
         errorCode = openDB(dbName, &db);
@@ -1294,6 +1294,8 @@ void MemcachedEngine::tap(shared_ptr<TapCallback> cb) {
             ctx.hdl = new TapResponseHandler(seqno++, epStats, cb, false, true);
             ctx.vbucketId = itr->second.first; 
             ctx.keysonly = false;
+            getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                "DEBUG calling changes_since for dbName: %s\n", dbName.c_str());
             errorCode = changes_since(db, 0, 0, recordDbDump, (void *)&ctx);
             if (errorCode) {
                  // TODO; log error and continue or return to client
@@ -1447,7 +1449,7 @@ int MemcachedEngine::openDB(std::string &dbName, Db **db)
         std::string newName;
         if ((newRevNum = checkNewRevNum(dbName))) {
             rev << newRevNum;
-            newName = std::string(dbName, 0, (dbName.rfind(".")-1)) + rev.str();
+            newName = std::string(dbName, 0, (dbName.rfind("."))) + "." + rev.str();
             errorCode = open_db(const_cast<char *>(newName.c_str()), 0, db);
         }
     }
@@ -1534,7 +1536,7 @@ int MemcachedEngine::checkNewRevNum(const std::string &dbname) {
 
     std::string  filename, revnum;
     size_t secondDot = dbname.rfind("."); 
-    std::string  keyNamePair = dbname.substr(0, secondDot);
+    std::string  keyNamePair = dbname.substr(0, secondDot+1);
     keyNamePair.append("*", 1);
 
     if (glob(keyNamePair.c_str(), GLOB_ERR | GLOB_MARK, NULL, &fglob)) {
@@ -1563,7 +1565,7 @@ int MemcachedEngine::checkNewRevNum(const std::string &dbname) {
 
 int MemcachedEngine::recordDbDump(Db* db, DocInfo* docinfo, void *ctx) {
     Item *it = NULL;
-    Doc *doc;
+    Doc *doc = NULL;
 
     TapResponseCtx *tapCtx = (TapResponseCtx *)ctx;
     TapResponseHandler *handler = tapCtx->hdl;
@@ -1585,6 +1587,7 @@ int MemcachedEngine::recordDbDump(Db* db, DocInfo* docinfo, void *ctx) {
         open_doc_with_docinfo(db, docinfo, &doc, 0);
         valuelen = doc->binary.size;
         valuePtr = (valuelen) ? doc->binary.buf : doc->json.buf;
+        // TODO fix json case
 
     } else {
         valuePtr = NULL;
@@ -1601,6 +1604,11 @@ int MemcachedEngine::recordDbDump(Db* db, DocInfo* docinfo, void *ctx) {
                   vbucketId); 
        
     handler->responseRecord(it, tapCtx->keysonly);
+
+    if (doc) {
+        free_doc(doc);
+    } 
+    delete handler; 
     return 0;
 }
 
