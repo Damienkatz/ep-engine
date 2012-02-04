@@ -20,6 +20,7 @@ pkginclude_HEADERS = command_ids.h
 
 memcachedlibdir = $(libdir)/memcached
 memcachedlib_LTLIBRARIES = ep.la ep_testsuite.la timing_tests.la
+
 noinst_LTLIBRARIES = \
                      libblackhole-kvstore.la \
                      libconfiguration.la \
@@ -50,7 +51,7 @@ cbadm-online-update.1m: docs/cbadm-online-update.pod
 cbbackup-incremental.1m: docs/cbbackup-incremental.pod
 	${POD2MAN} -c "$*" -r "" -s 1m $< $@
 
-ep_la_CPPFLAGS = -I$(top_srcdir) $(AM_CPPFLAGS)
+ep_la_CPPFLAGS = -I$(top_srcdir) $(AM_CPPFLAG) 
 ep_la_LDFLAGS = -module -dynamic
 ep_la_SOURCES = \
                  atomic/gcc_atomics.h \
@@ -97,7 +98,8 @@ ep_la_SOURCES = \
                  tapconnmap.cc tapconnmap.hh \
                  tapthrottle.cc tapthrottle.hh \
                  vbucket.cc vbucket.hh \
-                 vbucketmap.cc vbucketmap.hh
+                 vbucketmap.cc vbucketmap.hh \
+		 couch_db.h
 
 
 
@@ -128,6 +130,10 @@ libblackhole_kvstore_la_SOURCES = kvstore.hh \
                                   blackhole-kvstore/blackhole.cc \
                                   blackhole-kvstore/blackhole.hh
 
+couchstore_srcdir = ../couchstore
+couchstorelibdir = $(couchstore_srcdir)
+couchstorelib_LIB = libcouchstore.la
+
 libmc_kvstore_la_SOURCES = kvstore.hh \
                            mc-kvstore/mc-engine.cc \
                            mc-kvstore/mc-engine.hh \
@@ -136,10 +142,9 @@ libmc_kvstore_la_SOURCES = kvstore.hh \
                            tools/cJSON.c \
                            tools/cJSON.h
 libmc_kvstore_la_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/sqlite-kvstore \
-                            $(AM_CPPFLAGS)
-libmc_kvstore_la_LIBADD =
-libmc_kvstore_la_DEPENDENCIES =
-
+                            -I$(couchstore_srcdir)/include/libcouchstore $(AM_CPPFLAGS)
+libmc_kvstore_la_LIBADD = $(couchstorelibdir)/$(couchstorelib_LIB)
+libmc_kvstore_la_DEPENDENCIES = 
 .generated_configuration: gen_config configuration.json
 	./gen_config && touch .generated_configuration
 

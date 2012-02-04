@@ -4,6 +4,11 @@
 #include <cstdlib>
 #include <cctype>
 #include <algorithm>
+#include <stdio.h>
+#include <dirent.h>
+#include <glob.h>
+#include <signal.h>
+
 #include "locks.hh"
 
 #include "mc-kvstore/mc-engine.hh"
@@ -159,6 +164,8 @@ private:
     uint16_t vbucket;
     Callback<GetValue> &callback;
 };
+
+
 
 class SetResponseHandler: public BinaryPacketHandler {
 public:
@@ -441,11 +448,22 @@ public:
         callback->complete->callback(value);
     }
 
+    void responseRecord(Item *it, bool partial) {
+            GetValue rv(it, ENGINE_SUCCESS, -1, -1, NULL, partial);
+            callback->cb->callback(rv);
+    }
+
 private:
     shared_ptr<TapCallback> callback;
     size_t num;
     bool keysOnly;
     bool isWarmup;
+};
+
+struct TapResponseCtx {
+      TapResponseHandler *hdl;
+      uint16_t vbucketId;
+      bool keysonly;
 };
 
 class NoopResponseHandler: public BinaryPacketHandler {
@@ -1267,21 +1285,60 @@ void MemcachedEngine::selectBucket() {
 }
 
 void MemcachedEngine::tap(shared_ptr<TapCallback> cb) {
-    protocol_binary_request_tap_connect req;
-    memset(req.bytes, 0, sizeof(req.bytes));
-    req.message.header.request.magic = PROTOCOL_BINARY_REQ;
-    req.message.header.request.opcode = PROTOCOL_BINARY_CMD_TAP_CONNECT;
-    req.message.header.request.datatype = PROTOCOL_BINARY_RAW_BYTES;
-    req.message.header.request.extlen = 4;
-    req.message.header.request.bodylen = ntohl(4);
-    req.message.header.request.opaque = seqno;
-    req.message.body.flags = ntohl(TAP_CONNECT_FLAG_DUMP);
-    sendIov[0].iov_base = (char*)req.bytes;
-    sendIov[0].iov_len = sizeof(req.bytes);
-    numiovec = 1;
+    std::string dirname = configuration.getDbname();
 
-    sendCommand(new TapResponseHandler(seqno++, epStats, cb, false, true));
-    wait();
+    std::vector<std::string> files = std::vector<std::string>();
+    std::map<std::string, std::pair<int, int> > filemap;
+    if (getDataFiles(dirname, files)) {
+        populateFileNameMap(files, filemap);
+    } else {
+        getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                "data diretory does not exist %s\n", dirname.c_str());
+        return;
+    }
+
+    std::string dbName;
+    std::map<std::string, std::pair<int, int> >::iterator itr = filemap.begin();
+    Db *db = NULL;
+    int errorCode;
+
+    for (; itr != filemap.end(); itr++) {
+        std::stringstream rev;
+        rev << itr->second.second;
+        dbName = itr->first + "." + rev.str();
+        errorCode = openDB(dbName, &db);
+        if (!errorCode) {
+            TapResponseCtx ctx;
+            ctx.hdl = new TapResponseHandler(seqno++, epStats, cb, false, true);
+            ctx.vbucketId = itr->second.first;
+            ctx.keysonly = false;
+            getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                "DEBUG calling changes_since for dbName: %s\n", dbName.c_str());
+            errorCode = changes_since(db, 0, 0, recordDbDump, (void *)&ctx);
+            if (errorCode) {
+                 // TODO; log error and continue or return to client
+            getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                "changes_since failed %d\n", errorCode);
+                 abort();
+            }
+        } else {
+            // TODO: log error and continue or return to client
+            getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                "openDB failed %d dbName: %s\n", errorCode, dbName.c_str());
+
+            if (errorCode == ERROR_OPEN_FILE || errorCode == ERROR_NO_HEADER) {
+                db = NULL;
+                continue;
+            } else {
+               abort();
+            }
+        }
+
+        if (db) {
+            close_db(db);
+            db = NULL;
+        }
+    }
 }
 
 void MemcachedEngine::tapKeys(shared_ptr<TapCallback> cb) {
@@ -1396,6 +1453,180 @@ void MemcachedEngine::addStats(const std::string &prefix,
     addStat(prefix, "last_sent_command", cmd2str(lastSentCommand), add_stat, c);
     addStat(prefix, "last_received_command", cmd2str(lastReceivedCommand),
             add_stat, c);
+}
+
+
+int MemcachedEngine::openDB(std::string &dbName, Db **db)
+{
+    int errorCode = 0;
+
+    if ((errorCode = open_db(const_cast<char *>(dbName.c_str()), 0, db))) {
+        // check if doc exists with new revision number
+        int newRevNum;
+        std::stringstream rev;
+        std::string newName;
+        if ((newRevNum = checkNewRevNum(dbName))) {
+            rev << newRevNum;
+            newName = std::string(dbName, 0, (dbName.rfind("."))) + "." + rev.str();
+            errorCode = open_db(const_cast<char *>(newName.c_str()), 0, db);
+        }
+    }
+    return errorCode;
+}
+
+bool MemcachedEngine::getDataFiles(const std::string &dir,
+                                   std::vector<std::string> &v)
+{
+    DIR *dhdl = NULL;
+    struct dirent *direntry = NULL;
+
+    if ((dhdl = opendir(dir.c_str())) == NULL) {
+        getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                         "opendir failed: %s\n", dir.c_str());
+        return false;
+    } else {
+        while ((direntry = readdir(dhdl))) {
+            if (strlen(direntry->d_name) < (sizeof(".couch") - 1)) {
+                continue;
+            }
+            std::stringstream filename;
+            filename << dir << std::string("/") << std::string(direntry->d_name);
+            // push each file name into the vector except
+            // compact files
+
+            if (!isCompactFile(filename.str())) {
+                v.push_back(std::string(filename.str()));
+            }
+        }
+    }
+    closedir(dhdl);
+    return true;
+}
+
+void MemcachedEngine::populateFileNameMap(std::vector<std::string> &v,
+                                          std::map<std::string, std::pair<int, int> > &filemap)
+{
+   std::string filename;
+   std::string keyNamePair;
+   std::string revNumStr;
+   std::string bIdStr;
+
+   int revNum, bId;
+   size_t secondDot, firstDot, firstSlash;
+
+   std::map<std::string, std::pair<int, int> >::iterator itr;
+
+   while (!v.empty()) {
+
+       filename = v.back();
+       secondDot = filename.rfind(".");
+       keyNamePair = filename.substr(0, secondDot);
+       firstDot = keyNamePair.rfind(".");
+       firstSlash = keyNamePair.rfind("/");
+
+       revNumStr = filename.substr(secondDot+1);
+       revNum = atoi(revNumStr.c_str());
+       bIdStr = keyNamePair.substr(firstSlash+1, (firstDot - firstSlash));
+       bId = atoi(bIdStr.c_str());
+
+
+       itr = filemap.find(keyNamePair);
+       if (itr == filemap.end()) {
+           filemap.insert(std::pair<std::string, std::pair<int, int> >(
+                              keyNamePair,
+                              std::pair<int, int>(bId, revNum)));
+       } else {
+           // duplicate key
+           if (itr->second.second < revNum) {
+              filemap.erase(itr);
+              filemap.insert(std::pair<std::string, std::pair<int, int> >(
+                              keyNamePair,
+                              std::pair<int, int>(bId, revNum)));
+           }
+       }
+       v.pop_back();
+   }
+}
+
+int MemcachedEngine::checkNewRevNum(const std::string &dbname) {
+    int newrev = 0;
+    glob_t fglob;
+
+    std::string  filename, revnum;
+    size_t secondDot = dbname.rfind(".");
+    std::string  keyNamePair = dbname.substr(0, secondDot+1);
+    keyNamePair.append("*", 1);
+
+    if (glob(keyNamePair.c_str(), GLOB_ERR | GLOB_MARK, NULL, &fglob)) {
+       // log error - file permission etc
+       return newrev;
+    }
+
+    // found file(s) whoes name has the same key name pair with different
+    // revision number
+    int max = fglob.gl_pathc;
+    for (int count = 0; count < max; count++) {
+        filename = std::string(fglob.gl_pathv[count]);
+        if (isCompactFile(filename)) {
+            continue;
+        }
+
+        secondDot = filename.rfind(".");
+        revnum = filename.substr(secondDot+1);
+        if (newrev < atoi(revnum.c_str())) {
+            newrev = atoi(revnum.c_str());
+        }
+    }
+    globfree(&fglob);
+    return newrev;
+}
+
+int MemcachedEngine::recordDbDump(Db* db, DocInfo* docinfo, void *ctx) {
+    Item *it = NULL;
+    Doc *doc = NULL;
+
+    TapResponseCtx *tapCtx = (TapResponseCtx *)ctx;
+    TapResponseHandler *handler = tapCtx->hdl;
+
+    void *valuePtr;
+    size_t valuelen;
+    sized_buf  metadata = docinfo->meta;
+    uint32_t itemflags;
+    uint16_t vbucketId = tapCtx->vbucketId;
+    sized_buf key = docinfo->id;
+
+    assert(key.size <= UINT16_MAX);
+    assert(metadata.size == 16);
+
+    memcpy(&itemflags, (metadata.buf) + 12, 4);
+    itemflags = ntohs(itemflags);
+
+    if (!tapCtx->keysonly) {
+        open_doc_with_docinfo(db, docinfo, &doc, 0);
+        valuelen = doc->binary.size;
+        valuePtr = (valuelen) ? doc->binary.buf : doc->json.buf;
+        // TODO fix json case
+
+    } else {
+        valuePtr = NULL;
+        valuelen = 0;
+    }
+
+    it = new Item((void *)key.buf,
+                  key.size,
+                  itemflags,
+                  (time_t)0 /*expiration */,
+                  valuePtr, valuelen,
+                  0 /* cas */,
+                  1 /* id */,
+                  vbucketId);
+
+    handler->responseRecord(it, tapCtx->keysonly);
+
+    if (doc) {
+        free_doc(doc);
+    }
+    return 0;
 }
 
 const char *MemcachedEngine::cmd2str(uint8_t cmd)

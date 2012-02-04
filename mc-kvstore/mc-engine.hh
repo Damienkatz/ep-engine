@@ -9,6 +9,7 @@
 #include "configuration.hh"
 #include "callbacks.hh"
 #include "kvstore.hh"
+#include "couch_db.h"
 
 /*
  * libevent2 define evutil_socket_t so that it'll automagically work
@@ -115,6 +116,20 @@ public:
                   ADD_STAT add_stat,
                   const void *c);
 
+    int openDB(std::string &dbName, Db **db);
+ 
+    bool getDataFiles(const std::string &dir, std::vector<std::string> &v);
+    void populateFileNameMap(std::vector<std::string> &v,
+                             std::map<std::string, std::pair<int, int> > &filemap);
+    int checkNewRevNum(const std::string &dbname);
+    static int recordDbDump(Db* db, DocInfo* docinfo, void *ctx);
+    bool isCompactFile(const std::string &filename) {
+        size_t pos = filename.find(".compact");
+        if (pos == std::string::npos || 
+            (filename.size()  - sizeof(".compact")) != pos)
+            return false;
+        return true;
+    }
 protected:
     friend class SelectBucketResponseHandler;
 

@@ -9,7 +9,7 @@
 #include "mc-kvstore/mc-engine.hh"
 #include "ep_engine.h"
 #include "tools/cJSON.h"
-
+#include "couch_db.h"
 
 static std::string getStringFromJSONObj(cJSON *i) {
     if (i == NULL) {
@@ -35,6 +35,7 @@ MCKVStore::MCKVStore(const MCKVStore &from) :
     config(from.config), engine(from.engine),
     vbBatchCount(from.vbBatchCount), vbBatchSize(from.vbBatchSize) {
     open();
+    close_db(NULL);
 }
 
 void MCKVStore::reset() {
