@@ -449,7 +449,7 @@ public:
     }
 
     void responseRecord(Item *it, bool partial) {
-            GetValue rv(it, ENGINE_SUCCESS, -1, -1, NULL, partial); 
+            GetValue rv(it, ENGINE_SUCCESS, -1, -1, NULL, partial);
             callback->cb->callback(rv);
     }
 
@@ -1294,7 +1294,7 @@ void MemcachedEngine::tap(shared_ptr<TapCallback> cb) {
     } else {
         getLogger()->log(EXTENSION_LOG_WARNING, NULL,
                 "data diretory does not exist %s\n", dirname.c_str());
-        return; 
+        return;
     }
 
     std::string dbName;
@@ -1304,13 +1304,13 @@ void MemcachedEngine::tap(shared_ptr<TapCallback> cb) {
 
     for (; itr != filemap.end(); itr++) {
         std::stringstream rev;
-        rev << itr->second.second;        
+        rev << itr->second.second;
         dbName = itr->first + "." + rev.str();
         errorCode = openDB(dbName, &db);
         if (!errorCode) {
             TapResponseCtx ctx;
             ctx.hdl = new TapResponseHandler(seqno++, epStats, cb, false, true);
-            ctx.vbucketId = itr->second.first; 
+            ctx.vbucketId = itr->second.first;
             ctx.keysonly = false;
             getLogger()->log(EXTENSION_LOG_WARNING, NULL,
                 "DEBUG calling changes_since for dbName: %s\n", dbName.c_str());
@@ -1320,7 +1320,7 @@ void MemcachedEngine::tap(shared_ptr<TapCallback> cb) {
             getLogger()->log(EXTENSION_LOG_WARNING, NULL,
                 "changes_since failed %d\n", errorCode);
                  abort();
-            } 
+            }
         } else {
             // TODO: log error and continue or return to client
             getLogger()->log(EXTENSION_LOG_WARNING, NULL,
@@ -1333,7 +1333,7 @@ void MemcachedEngine::tap(shared_ptr<TapCallback> cb) {
                abort();
             }
         }
-       
+
         if (db) {
             close_db(db);
             db = NULL;
@@ -1493,7 +1493,7 @@ bool MemcachedEngine::getDataFiles(const std::string &dir,
             filename << dir << std::string("/") << std::string(direntry->d_name);
             // push each file name into the vector except
             // compact files
-           
+
             if (!isCompactFile(filename.str())) {
                 v.push_back(std::string(filename.str()));
             }
@@ -1510,7 +1510,7 @@ void MemcachedEngine::populateFileNameMap(std::vector<std::string> &v,
    std::string keyNamePair;
    std::string revNumStr;
    std::string bIdStr;
-   
+
    int revNum, bId;
    size_t secondDot, firstDot, firstSlash;
 
@@ -1529,18 +1529,18 @@ void MemcachedEngine::populateFileNameMap(std::vector<std::string> &v,
        bIdStr = keyNamePair.substr(firstSlash+1, (firstDot - firstSlash));
        bId = atoi(bIdStr.c_str());
 
-        
+
        itr = filemap.find(keyNamePair);
        if (itr == filemap.end()) {
            filemap.insert(std::pair<std::string, std::pair<int, int> >(
-                              keyNamePair, 
+                              keyNamePair,
                               std::pair<int, int>(bId, revNum)));
        } else {
            // duplicate key
            if (itr->second.second < revNum) {
               filemap.erase(itr);
               filemap.insert(std::pair<std::string, std::pair<int, int> >(
-                              keyNamePair, 
+                              keyNamePair,
                               std::pair<int, int>(bId, revNum)));
            }
        }
@@ -1553,7 +1553,7 @@ int MemcachedEngine::checkNewRevNum(const std::string &dbname) {
     glob_t fglob;
 
     std::string  filename, revnum;
-    size_t secondDot = dbname.rfind("."); 
+    size_t secondDot = dbname.rfind(".");
     std::string  keyNamePair = dbname.substr(0, secondDot+1);
     keyNamePair.append("*", 1);
 
@@ -1596,8 +1596,8 @@ int MemcachedEngine::recordDbDump(Db* db, DocInfo* docinfo, void *ctx) {
     sized_buf key = docinfo->id;
 
     assert(key.size <= UINT16_MAX);
-    assert(metadata.size == 16); 
-    
+    assert(metadata.size == 16);
+
     memcpy(&itemflags, (metadata.buf) + 12, 4);
     itemflags = ntohs(itemflags);
 
@@ -1611,22 +1611,21 @@ int MemcachedEngine::recordDbDump(Db* db, DocInfo* docinfo, void *ctx) {
         valuePtr = NULL;
         valuelen = 0;
     }
-    
-    it = new Item((void *)key.buf, 
-                  key.size, 
-                  itemflags, 
-                  (time_t)0 /*expiration */, 
-                  valuePtr, valuelen, 
-                  0 /* cas */, 
-                  1 /* id */, 
-                  vbucketId); 
-       
+
+    it = new Item((void *)key.buf,
+                  key.size,
+                  itemflags,
+                  (time_t)0 /*expiration */,
+                  valuePtr, valuelen,
+                  0 /* cas */,
+                  1 /* id */,
+                  vbucketId);
+
     handler->responseRecord(it, tapCtx->keysonly);
 
     if (doc) {
         free_doc(doc);
-    } 
-    delete handler; 
+    }
     return 0;
 }
 
