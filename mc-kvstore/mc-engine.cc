@@ -1287,15 +1287,13 @@ void MemcachedEngine::tap(shared_ptr<TapCallback> cb) {
 
     for (; itr != filemap.end(); itr++) {
         rev << itr->second.second;        
-        dbName = itr->first + rev.str();
+        dbName = itr->first + "." + rev.str();
         errorCode = openDB(dbName, &db);
         if (!errorCode) {
             TapResponseCtx ctx;
             ctx.hdl = new TapResponseHandler(seqno++, epStats, cb, false, true);
             ctx.vbucketId = itr->second.first; 
             ctx.keysonly = false;
-            getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                "DEBUG changes_since called \n");
             errorCode = changes_since(db, 0, 0, recordDbDump, (void *)&ctx);
             if (errorCode) {
                  // TODO; log error and continue or return to client
