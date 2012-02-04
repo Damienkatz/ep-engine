@@ -120,7 +120,7 @@ public:
  
     bool getDataFiles(const std::string &dir, std::vector<std::string> &v);
     void populateFileNameMap(std::vector<std::string> &v,
-                             std::map<char *, std::pair<int, int> > &filemap);
+                             std::map<std::string, std::pair<int, int> > &filemap);
     int checkNewRevNum(const std::string &dbname);
     static int recordDbDump(Db* db, DocInfo* docinfo, void *ctx);
     bool isCompactFile(const std::string &filename) {

@@ -1270,7 +1270,7 @@ void MemcachedEngine::tap(shared_ptr<TapCallback> cb) {
     std::string dirname = configuration.getDbname();
 
     std::vector<std::string> files = std::vector<std::string>();
-    std::map<char *, std::pair<int, int> > filemap;
+    std::map<std::string, std::pair<int, int> > filemap;
     if (getDataFiles(dirname, files)) {
         populateFileNameMap(files, filemap);
     } else {
@@ -1281,36 +1281,37 @@ void MemcachedEngine::tap(shared_ptr<TapCallback> cb) {
 
     std::string dbName;
     std::stringstream rev;  
-    std::map<char *, std::pair<int, int> >::iterator itr = filemap.begin();
+    std::map<std::string, std::pair<int, int> >::iterator itr = filemap.begin();
     Db *db = NULL;
     int errorCode;
 
     for (; itr != filemap.end(); itr++) {
         rev << itr->second.second;        
-        dbName = std::string(itr->first) + rev.str();
+        dbName = itr->first + rev.str();
         errorCode = openDB(dbName, &db);
         if (!errorCode) {
             TapResponseCtx ctx;
             ctx.hdl = new TapResponseHandler(seqno++, epStats, cb, false, true);
             ctx.vbucketId = itr->second.first; 
             ctx.keysonly = false;
+            getLogger()->log(EXTENSION_LOG_WARNING, NULL,
+                "DEBUG changes_since called \n");
             errorCode = changes_since(db, 0, 0, recordDbDump, (void *)&ctx);
             if (errorCode) {
                  // TODO; log error and continue or return to client
             getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                "DEBUG changes_since failed %d\n", errorCode);
+                "changes_since failed %d\n", errorCode);
                  abort();
             } 
         } else {
             // TODO: log error and continue or return to client
             getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                "DEBUG openDB failed %d dbName: %s\n", errorCode, dbName.c_str());
+                "openDB failed %d dbName: %s\n", errorCode, dbName.c_str());
+
             if (errorCode == ERROR_OPEN_FILE || errorCode == ERROR_NO_HEADER) {
                 db = NULL;
                 continue;
             } else {
-               getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                   "DEBUG openDB %s failed %d\n", dbName.c_str(), errorCode);
                abort();
             }
         }
@@ -1463,12 +1464,10 @@ bool MemcachedEngine::getDataFiles(const std::string &dir,
 
     if ((dhdl = opendir(dir.c_str())) == NULL) {
         getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                         "DEBUG opendir failed: %s\n", dir.c_str());
+                         "opendir failed: %s\n", dir.c_str());
         return false;
     } else {
         while ((direntry = readdir(dhdl))) {
-            getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                "DEBUG d_name: %s\n", direntry->d_name);
             if (strlen(direntry->d_name) < (sizeof(".couch") - 1)) {
                 continue;
             }
@@ -1477,9 +1476,6 @@ bool MemcachedEngine::getDataFiles(const std::string &dir,
             // push each file name into the vector except
             // compact files
            
-            getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                "DEBUG filename: %s[d_name: %s]\n", filename.str().c_str(), direntry->d_name);
-
             if (!isCompactFile(filename.str())) {
                 v.push_back(std::string(filename.str()));
             }
@@ -1490,7 +1486,7 @@ bool MemcachedEngine::getDataFiles(const std::string &dir,
 }
 
 void MemcachedEngine::populateFileNameMap(std::vector<std::string> &v,
-                                          std::map<char *, std::pair<int, int> > &filemap)
+                                          std::map<std::string, std::pair<int, int> > &filemap)
 {
    std::string filename;
    std::string keyNamePair;
@@ -1500,9 +1496,8 @@ void MemcachedEngine::populateFileNameMap(std::vector<std::string> &v,
    int revNum, bId;
    size_t secondDot, firstDot, firstSlash;
 
-   std::map<char *, std::pair<int, int> >::iterator itr;
+   std::map<std::string, std::pair<int, int> >::iterator itr;
 
-   int DEBUGcount = 0;
    while (!v.empty()) {
 
        filename = v.back();
@@ -1516,29 +1511,18 @@ void MemcachedEngine::populateFileNameMap(std::vector<std::string> &v,
        bIdStr = keyNamePair.substr(firstSlash+1, (firstDot - firstSlash));
        bId = atoi(bIdStr.c_str());
 
-       itr = filemap.find((char *)keyNamePair.c_str());
+        
+       itr = filemap.find(keyNamePair);
        if (itr == filemap.end()) {
-           
-           if ((DEBUGcount % 10) == 0) {
-           getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                "DEBUG keyNamePair: %s bid: %d rev: %d\n", keyNamePair.c_str(), bId, revNum);
-           }
-           filemap.insert(std::pair<char *, std::pair<int, int> >(
-                              (char *)keyNamePair.c_str(), 
+           filemap.insert(std::pair<std::string, std::pair<int, int> >(
+                              keyNamePair, 
                               std::pair<int, int>(bId, revNum)));
        } else {
-           
-           if ((DEBUGcount % 4) == 0) {
-           getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                "DEBUG duplicate keyNamePair: %s bid: %d rev: %d\n", itr->first, itr->second.first, itr->second.second);
-           getLogger()->log(EXTENSION_LOG_WARNING, NULL,
-                "DEBUG duplicate keyNamePair: %s bid: %d new rev: %d\n", keyNamePair.c_str(), bId, revNum);
-           }
            // duplicate key
            if (itr->second.second < revNum) {
               filemap.erase(itr);
-              filemap.insert(std::pair<char *, std::pair<int, int> >(
-                              (char *)keyNamePair.c_str(), 
+              filemap.insert(std::pair<std::string, std::pair<int, int> >(
+                              keyNamePair, 
                               std::pair<int, int>(bId, revNum)));
            }
        }
